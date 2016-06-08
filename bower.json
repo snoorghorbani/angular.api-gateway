@@ -1,0 +1,29 @@
+{
+  "name": "angular.apiGateway",
+  "version": "0.0.0",
+  "authors": [
+    "snoorghorbani <snoorghorbani@gmail.com>"
+  ],
+  "description": "angular api gateway for rest architecture",
+  "main": "dist/angular.apiGateway",
+  "moduleType": [
+    "amd",
+    "es6"
+  ],
+  "keywords": [
+    "Angular",
+    "REST",
+    "Data",
+    "Contract",
+    "UI",
+    "Logic"
+  ],
+  "license": "MIT",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests"
+  ]
+}
