@@ -1,38 +1,26 @@
 ﻿angular
 	.module('apiGateway', [])
-		.service('angular.apiGateway', ['$rootScope', '$state', '_', function ($rootScope, $state, _) {
-		    var CS_DB_COMMAND_PREFIX = 'cs.db.';
+		.factory('apiGateway', ['$rootScope', '$state', '_', "$resource", function ($rootScope, $state, _, $resource) {
 
-		    var proxyService = function proxyService(scope, identifier) {
-		        this.scope = scope;
-		        this.identifier = identifier;
+		    var apiGateway = function apiGateway() { }
 
-		        scope.CONTROLLER_NAME = identifier;
-
-		        //scope.cs = this;
-		    }
-
-		    //#region proxyService Prototype
-		    proxyService.prototype.db = proxyService.prototype.db || {};
-		    //proxyService.prototype.model = proxyService.prototype.model || {};
-		    proxyService.prototype.notification = proxyService.prototype.notification || {};
+		    //#region apiGateway Prototype
+		    apiGateway.prototype.db = apiGateway.prototype.db || {};
+		    apiGateway.prototype.notification = apiGateway.prototype.notification || {};
 		    //#endregion
 
-		    //#region proxyService Constructor Object Methods
+		    //#region apiGateway Constructor Object Methods
+		    apiGateway.context = function (contextName) {
+		        var _db = apiGateway.prototype.db;
+		        var _model = apiGateway.prototype;
+		        var _notification = apiGateway.prototype.notification;
 
-		    proxyService.db = function (contextName) {
-		        proxyService.prototype.db[contextName] = proxyService.prototype.db[contextName] || {};
-		        proxyService.prototype[contextName] = proxyService.prototype[contextName] || {};
-		        proxyService.prototype.notification[contextName] = proxyService.prototype.notification[contextName] || {};
+		        var add_model_to_context = function (options) {
+		            var actionNames = options.actionName;
+		            var contextName = options.context;
+		            var cFn = options.model;
 
-		        var db = proxyService.prototype.db;
-		        var model = proxyService.prototype;
-		        var notification = proxyService.prototype.notification;
-		        var contextName = contextName;
-
-		        var addModelToContext = function (actionNames, cFn, options) {
 		            if (!_.is.array(actionNames)) actionNames = [actionNames];
-
 		            //TODO : think about it
 		            var proto = {};
 		            proto.options = options || {};
@@ -97,16 +85,16 @@
 		                return (this.ModelType && (this[this.ModelType + 'Id'] || this[this.ModelType + 'Code'])) ? false : true;
 		            }
 		            proto.$invoke = function () {
-		                return db[contextName][this.model](this);
+		                return _db[contextName][this.model](this);
 		            };
 		            proto.$reset = function () {
-		                var temp = model[contextName][this.model](true);
+		                var temp = _model[contextName][this.model](true);
 		                return this.update(temp);
 		            };
 
 		            for (var i = 0, actionName ; actionName = actionNames[i]; i++)
-		                model[contextName][actionName] = (function (cFn, contextName, actionName) {
-		                    var Fn = function proxyServiceModelConstructor(reset) {
+		                _model[contextName][actionName] = (function (cFn, contextName, actionName) {
+		                    var Fn = function apiGatewayModelConstructor(reset) {
 		                        if (Fn.$$instance && !reset) return Fn.$$instance;
 
 		                        var obj = {};
@@ -119,7 +107,7 @@
 		                        return Fn.$$instance = obj;
 		                    }
 		                    Fn.$$instance = null;
-		                    Fn.$action = db[contextName][actionName];
+		                    Fn.$action = _db[contextName][actionName];
 		                    Fn.$init = function (invokeAction) {
 		                        var instance = new Fn();
 		                        if (invokeAction) instance.$invoke();
@@ -128,206 +116,226 @@
 		                    Fn._config = {};
 		                    Fn.$promise = {
 		                        "then": function (thenCallback) {
-		                            //db[contextName][actionName]._config = db[contextName][actionName]._config || {};
-		                            db[contextName][actionName]._config.then = thenCallback;
+		                            _db[contextName][actionName]._config.then = thenCallback;
 		                            return this;
 		                        },
 		                        "catch": function (catchCallback) {
-		                            //db[contextName][actionName]._config = db[contextName][actionName]._config || {};
-		                            db[contextName][actionName]._config.catch = catchCallback;
+		                            _db[contextName][actionName]._config.catch = catchCallback;
 		                            return this;
 		                        }
 		                    }
+		                    Fn.prototype.actionName = actionName;
 
 		                    return Fn;
 		                })(cFn, contextName, actionName);
-
-		            return (!angular.isArray(actionNames)) ? model[contextName] : model[contextName][actionNames];
+		            return this;
+		            //return (!angular.isArray(actionNames)) ? _model[contextName] : _model[contextName][actionNames];
 		        };
-		        var addMethodToContext = function (methodName, method, options) {
-		            if (angular.isFunction(method)) {
-		                db[contextName][methodName] = function (actionInstance/*args*/) {
-		                    var that = this;
-		                    var options = options;
-		                    var args = _.argToArray(arguments);
-		                    _.removeEventArg(args);
+		        var add_method_to_context = function (contextName, methodName, method) {
+		            if (!angular.isFunction(method)) return;
 
-		                    //_.assignIfNotDefined(db[contextName].Models[methodName], addModelToContext, methodName, _.fn());
-		                    //if (!model[contextName][methodName]) model[contextName][methodName] = addModelToContext(methodName, _.fn());
-		                    var removeNotify = null;
-		                    if (model[contextName][methodName]) {
-		                        var sendingObjectModel = new model[contextName][methodName]();
-		                        if (!angular.isFunction(args[0]) && !angular.isObject(args[0]) && angular._.is.defined(args[0])) {
-		                            createObj: for (var i in sendingObjectModel) {
-		                                //TODO: isValue
-		                                if (!angular.isFunction(args[0]) && angular._.is.defined(args[0])) {
-		                                    sendingObjectModel[i] = args.shift();
-		                                } else {
-		                                    args.unshift(sendingObjectModel);
-		                                    break createObj;
-		                                }
+		            _db[contextName][methodName] = function (actionInstance/*args*/) {
+		                var that = this;
+		                var options = options;
+		                var args = _.argToArray(arguments);
+		                _.removeEventArg(args);
+
+		                //_.assignIfNotDefined(db[contextName].Models[methodName], add_model_to_context, methodName, _.fn());
+		                //if (!_model[contextName][methodName]) _model[contextName][methodName] = add_model_to_context(methodName, _.fn());
+		                var removeNotify = null;
+		                if (_model[contextName][methodName]) {
+		                    var sendingObjectModel = new _model[contextName][methodName]();
+		                    if (!angular.isFunction(args[0]) && !angular.isObject(args[0]) && angular._.is.defined(args[0])) {
+		                        createObj: for (var i in sendingObjectModel) {
+		                            //TODO: isValue
+		                            if (!angular.isFunction(args[0]) && angular._.is.defined(args[0])) {
+		                                sendingObjectModel[i] = args.shift();
+		                            } else {
+		                                args.unshift(sendingObjectModel);
+		                                break createObj;
 		                            }
 		                        }
-		                        //extract url params
-		                        sendingObjectModel.update($state.params);
-		                        if (_.is.object(args[0])) sendingObjectModel.update(args[0]);
-		                        if (_.is.function(args[0])) args.unshift({});
-
-		                        args[0] = sendingObjectModel.toModel();
-
-		                        //var request = api[methodName].apply(db[contextName], args);
-		                        var requiredFieldValidation = sendingObjectModel.haveReauiredField();
-
-		                        var request = (requiredFieldValidation.result)
-                                    ? method.apply(db[contextName], args)
-                                    : new model[contextName][requiredFieldValidation.model]();
-		                    } else {
-		                        var request = method.apply(db[contextName], args);
 		                    }
-		                    if (request.$promise)
-		                        if (notification[contextName][methodName])
-		                            removeNotify = $rootScope.$$$notify.info(notification[contextName][methodName]);
+		                    //extract url params
+		                    sendingObjectModel.update($state.params);
+		                    if (_.is.object(args[0])) sendingObjectModel.update(args[0]);
+		                    if (_.is.function(args[0])) args.unshift({});
 
-		                    request.$promise && request.$promise.finally(function () {
-		                        if (removeNotify) setTimeout(removeNotify, 333);
-		                    });
+		                    args[0] = sendingObjectModel.toModel();
 
-		                    request.$promise.then(function (result) {
-		                        $rootScope.$$$notify.success();
-		                        var deformedResult = deformWithGetter(actionInstance, result);
-		                        actionInstance.update(deformedResult);
-		                        db[contextName][methodName]._config.then && db[contextName][methodName]._config.then.apply(args, arguments);;
-		                    }).catch(function () {
-		                        $rootScope.$$$notify.error();
-		                        db[contextName][methodName]._config.catch && db[contextName][methodName]._config.catch.apply(args, arguments);
-		                    });
-		                    if (_.is.scalar(request))
-		                        return { result: request };
-		                    else return {
-		                        'then': function onRequestPromiseSuccess(placeToSaveResultOrCallbackOrEmitter/*placeToSaveResult object or callback function*/, assignKey) {
-		                            var callback;
-		                            if (_.is.function(placeToSaveResultOrCallbackOrEmitter)) {
-		                                callback = placeToSaveResultOrCallbackOrEmitter;
-		                            }
-		                                //TODO : sendEmitter
-		                            else if (_.isString(placeToSaveResultOrCallbackOrEmitter)) {
-		                                callback = _.leftCurry()(placeToSaveResultOrCallbackOrEmitter);
-		                            } else {
-		                                callback = function (res) {
-		                                    var assignValue = (assignKey) ? _.getValue(res, assignKey) : res;
-		                                    //convert to model
-		                                    if (model[contextName][methodName])
-		                                        if (model[contextName][model[contextName][methodName]().options.returnModel])
-		                                            var assignValue = new model[contextName][model[contextName][methodName]().options.returnModel]().update(assignValue);
-		                                    console.log(that)
-		                                    placeToSaveResultOrCallbackOrEmitter && _.safeAssign(placeToSaveResultOrCallbackOrEmitter, assignValue, true);
-		                                }
-		                            }
-		                            if (request.$promise) {
-		                                request.$promise.then(callback);
-		                            } else {
-		                                callback(request)
-		                            }
+		                    var requiredFieldValidation = sendingObjectModel.haveReauiredField();
 
-		                            return this;
-		                        },
-		                        'catch': function onRequestPromiseFailed(/*object or callback function*/) {
-		                            var args = _.argToArray(arguments);
-		                            var arg = args.shift();
-		                            var obj;
-		                            var callback;
-
-		                            if (_.is.function(arg)) {
-		                                callback = arg;
-		                            } else {
-		                                callback = function (res) {
-		                                    placeToSaveResult = res;
-		                                }
-		                            }
-
-		                            request.$promise.catch(callback);
-		                            return this;
-		                        }
-		                    };
+		                    var request = (requiredFieldValidation.result)
+                                ? method.apply(_db[contextName], args)
+                                : new _model[contextName][requiredFieldValidation.model]();
+		                } else {
+		                    var request = method.apply(_db[contextName], args);
 		                }
+		                if (request.$promise)
+		                    if (_notification[contextName][methodName])
+		                        removeNotify = $rootScope.$$$notify.info(_notification[contextName][methodName]);
 
-		                db[contextName][methodName]._config = {};
+		                request.$promise && request.$promise.finally(function () {
+		                    if (removeNotify) setTimeout(removeNotify, 333);
+		                });
 
+		                request.$promise.then(function (result) {
+		                    $rootScope.$$$notify.success();
+		                    var deformedResult = deform_with_getter(actionInstance, result);
+		                    actionInstance.update(deformedResult);
+		                    _db[contextName][methodName]._config.then && _db[contextName][methodName]._config.then.apply(args, arguments);;
+		                }).catch(function () {
+		                    $rootScope.$$$notify.error();
+		                    _db[contextName][methodName]._config.catch && _db[contextName][methodName]._config.catch.apply(args, arguments);
+		                });
+		                if (_.is.scalar(request))
+		                    return { result: request };
+		                else return {
+		                    'then': function onRequestPromiseSuccess(placeToSaveResultOrCallbackOrEmitter/*placeToSaveResult object or callback function*/, assignKey) {
+		                        var callback;
+		                        if (_.is.function(placeToSaveResultOrCallbackOrEmitter)) {
+		                            callback = placeToSaveResultOrCallbackOrEmitter;
+		                        }
+		                            //TODO : sendEmitter
+		                        else if (_.isString(placeToSaveResultOrCallbackOrEmitter)) {
+		                            callback = _.leftCurry()(placeToSaveResultOrCallbackOrEmitter);
+		                        } else {
+		                            callback = function (res) {
+		                                var assignValue = (assignKey) ? _.getValue(res, assignKey) : res;
+		                                //convert to model
+		                                if (_model[contextName][methodName])
+		                                    if (_model[contextName][_model[contextName][methodName]().options.returnModel])
+		                                        var assignValue = new _model[contextName][_model[contextName][methodName]().options.returnModel]().update(assignValue);
+		                                console.log(that)
+		                                placeToSaveResultOrCallbackOrEmitter && _.safeAssign(placeToSaveResultOrCallbackOrEmitter, assignValue, true);
+		                            }
+		                        }
+		                        if (request.$promise) {
+		                            request.$promise.then(callback);
+		                        } else {
+		                            callback(request)
+		                        }
+
+		                        return this;
+		                    },
+		                    'catch': function onRequestPromiseFailed(/*object or callback function*/) {
+		                        var args = _.argToArray(arguments);
+		                        var arg = args.shift();
+		                        var obj;
+		                        var callback;
+
+		                        if (_.is.function(arg)) {
+		                            callback = arg;
+		                        } else {
+		                            callback = function (res) {
+		                                placeToSaveResult = res;
+		                            }
+		                        }
+
+		                        request.$promise.catch(callback);
+		                        return this;
+		                    }
+		                };
 		            }
+
+		            _db[contextName][methodName]._config = {};
+		        };
+		        var add_notification_to_context = function (context, actions, message) {
+		            if (!_.is.array(actions)) actions = [actions];
+
+		            _.each(actions, function (action) {
+		                _notification[context][action] = message;
+		            });
 		        };
 		        var addWrapperToContext = function (methodName, method, options) {
-		            db[contextName][methodName] = function () {
+		            _db[contextName][methodName] = function () {
 		                var args = _.argToArray(arguments);
-		                var res = method.apply(db[contextName], args);
-		                return res.fn.apply(db[contextName], res.args);
+		                var res = method.apply(_db[contextName], args);
+		                return res.fn.apply(_db[contextName], res.args);
 		            }
 		        };
 		        var addUpsertToContext = function (methodName, addMethod, updateMethod) {
 		            var addMethod = addMethod;
 		            var updateMethod = updateMethod;
-		            db[contextName][methodName] = function (entityModel) {
+		            _db[contextName][methodName] = function (entityModel) {
 		                var args = _.argToArray(arguments);
 
 		                var fn = (entityModel.isNew())
-                                ? db[contextName][addMethod]
-                                : db[contextName][updateMethod];
-		                return fn.apply(db[contextName], args);
+                                ? _db[contextName][addMethod]
+                                : _db[contextName][updateMethod];
+		                return fn.apply(_db[contextName], args);
 		            }
 		        };
-		        var addNotificationToContext = function (actionNames, message) {
-		            if (!_.is.array(actionNames)) actionNames = [actionNames];
+		        var add_api = function (contextName, actionName, method) {
+		            debugger;
+		            this.actionName = actionName;
+		            var actions = {}
+		            actions[actionName] = { method: method, params: {} };
+		            var api = $resource('/' + contextName + '/' + actionName, {}, actions);
+		            add_method_to_context(contextName, actionName, api[actionName]);
+		            return this;
+		        };
+		        var deform_with_getter = function (model, obj) {
+		            var function_That_Change_Data_With_Model_Getter = _.leftCurry(_.deformPathValue)(obj);
+		            _.each(model.options.getter, function_That_Change_Data_With_Model_Getter);
+		            return obj;
+		        }
 
-		            _.each(actionNames, function (methodName) {
-		                notification[contextName][methodName] = message;
-		            });
+		        //#region Costumizer functions that fill the option and then create model and actions according options.
+		        var options = { getter: {}, setter: {}, config: {} };
+		        options.context = contextName;
+		        var action = function (actionName) {
+		            options.actionName = actionName;
+		            return this;
 		        };
-		        var addApi = function (api) {
-		            _.each(api, function (action, actionKey) {
-		                addMethodToContext(actionKey, action);
-		            }, this, true);
+		        var method = function (method) {
+		            options.method = method.toUpperCase();
+		            return this;
 		        };
+		        var model = function (model) {
+		            options.model = model;
+		            return this;
+		        };
+		        var getter = function (key, deformer) {
+		            options.getter[key] = deformer;
+		            return this;
+		        };
+		        var setter = function (key, deformer) {
+		            options.setter[key] = deformer;
+		            return this;
+		        };
+		        var notification = function (notification) {
+		            options.notification = notification;
+		            return this;
+		        };
+		        var config = function (key, value) {
+		            options.config[key] = value;
+		            return this;
+		        };
+		        var done = function () {
+		            debugger;
+		            apiGateway.prototype[contextName] = apiGateway.prototype[contextName] || {};
+		            apiGateway.prototype.db[contextName] = apiGateway.prototype.db[contextName] || {};
+		            apiGateway.prototype.notification[contextName] = apiGateway.prototype.notification[contextName] || {};
+
+		            add_model_to_context(options);
+		            add_api(options.context, options.actionName, options.method);
+		            add_notification_to_context(options.context, options.actionName, options.notification);
+		        }
+		        //#endregion
 
 		        return {
-		            model: addModelToContext,
-		            method: addMethodToContext,
-		            wrapper: addWrapperToContext,
-		            upsert: addUpsertToContext,
-		            notification: addNotificationToContext,
-		            api: addApi,
-		            uiModel: proxyService.prototype.uiModel
-		        };
+		            done: done,
+		            notification: notification,
+		            action: action,
+		            method: method,
+		            model: model,
+		            getter: getter,
+		            setter: setter,
+		            config: config
+		        }
 		    };
-
 		    ///#endregion
 
-		    //#region register command handler
-
-		    var commandHandler = function (command) {
-		        var fn;
-		        //var command = Emitter.prototype.parse(command);
-		        var action = '';
-		        if (command.identifier.search(CS_DB_COMMAND_PREFIX) > -1) {
-		            action = command.identifier.substr(CS_DB_COMMAND_PREFIX.length);
-		            var actionPath = action.split('.')
-		            if (!proxyService.prototype.db[actionPath[0]][actionPath[1]]) alert('incorrect command: ' + CS_DB_COMMAND_PREFIX + command);
-
-		            fn = proxyService.prototype.db[actionPath[0]][actionPath[1]];
-		        } else return null;
-
-		        return {
-		            fn: fn,
-		            command: null
-		        }
-		    }
-		    //Emitter.handler(commandHandler);
-
-		    //#endregion
-		    var deformWithGetter = function (model, obj) {
-		        debugger;
-		        var function_That_Change_Data_With_Model_Getter = _.leftCurry(_.deformPathValue)(obj);
-		        _.each(model.options.getter, function_That_Change_Data_With_Model_Getter);
-		        return obj;
-		    }
-
-		    return proxyService;
+		    return apiGateway;
 		}]);
