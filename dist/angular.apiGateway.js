@@ -15,19 +15,14 @@
 		        var _model = apiGateway.prototype;
 		        var _notification = apiGateway.prototype.notification;
 
-		        var add_model_to_context = function (options) {
-		            var actionNames = options.actionName;
-		            var contextName = options.context;
-		            var cFn = options.model;
+		        //#region instance prototype 
 
-		            if (!_.is.array(actionNames)) actionNames = [actionNames];
-		            //TODO : think about it
-		            var proto = {};
-		            proto.options = options || {};
-		            proto.config = proto.config || {};
-		            proto.options.setter = proto.options.setter || {};
-		            proto.options.getter = proto.options.getter || {};
-		            proto.toModel = function () {
+		        var __proto = function (options) {
+		            this.options = options || {};
+		            this.options.setter = this.options.setter || {};
+		            this.options.getter = this.options.getter || {};
+		            this.$$schema = this.options.schema || {};
+		            this.$$toModel = function () {
 		                var obj = {};
 		                for (var k in this) {
 		                    //TODO : check sub Model
@@ -42,7 +37,7 @@
 		                }
 		                return obj;
 		            };
-		            proto.getGetter = function (k) {
+		            this.getGetter = function (k) {
 		                //TODO define property getter;
 		                return (this.options.getter[k]) ? this.options.getter[k] : function (i) { return i }
 
@@ -52,7 +47,7 @@
 
 		                return fn;
 		            }
-		            proto.update = function (obj) {
+		            this.$update = function (obj) {
 		                var getter;
 		                for (var k in this) {
 		                    getter = this.getGetter(k);;
@@ -70,27 +65,50 @@
 		                }
 		                return this;
 		            };
-		            proto.extend = function (obj) {
+		            this.extend = function (obj) {
 		            }
-		            proto.haveReauiredField = function () {
+		            this.haveReauiredField = function () {
 		                if (this.options && this.options.concrete)
 		                    for (var i = 0, field; field = this.options.required[i]; i++)
 		                        if (!this[field]) return { result: false, model: this.options.returnModel };
 		                return { result: true };
 		            }
-		            proto.id = function () {
+		            this.id = function () {
 		                return this.ModelType && this[this.ModelType + 'Id'];
 		            }
-		            proto.$isNew = function () {
+		            this.$isNew = function () {
 		                return (this.ModelType && (this[this.ModelType + 'Id'] || this[this.ModelType + 'Code'])) ? false : true;
 		            }
-		            proto.$invoke = function () {
-		                return _db[contextName][this.model](this);
+		            this.$invoke = function () {
+		                return _db[contextName][this.options.actionName](this);
 		            };
-		            proto.$reset = function () {
-		                var temp = _model[contextName][this.model](true);
-		                return this.update(temp);
+		            this.$promise = (function (actionName) {
+		                return {
+		                    "then": function (thenCallback) {
+		                        _db[contextName][actionName]._config.then = thenCallback;
+		                        return this;
+		                    },
+		                    "catch": function (catchCallback) {
+		                        _db[contextName][actionName]._config.catch = catchCallback;
+		                        return this;
+		                    }
+		                }
+		            })(options.actionName);
+		            this.$reset = function () {
+		                var temp = _model[contextName][this.options.actionName](true);
+		                return this.$update(temp);
 		            };
+		        }
+		        //#endregion
+
+		        var add_model_to_context = function (options) {
+		            var actionNames = options.actionName;
+		            var contextName = options.context;
+		            var cFn = options.model;
+		            var proto = new __proto(options);
+
+		            if (!_.is.array(actionNames)) actionNames = [actionNames];
+		            //TODO : think about it
 
 		            for (var i = 0, actionName ; actionName = actionNames[i]; i++)
 		                _model[contextName][actionName] = (function (cFn, contextName, actionName) {
@@ -98,8 +116,7 @@
 		                        if (Fn.$$instance && !reset) return Fn.$$instance;
 
 		                        var obj = {};
-		                        cFn.prototype = _.cloneObj(proto);
-		                        cFn.prototype.model = actionName;
+		                        cFn.prototype = proto;
 		                        obj = new cFn();
 
 		                        if (this.uiModelPropertiesConstructor)
@@ -157,11 +174,11 @@
 		                        }
 		                    }
 		                    //extract url params
-		                    sendingObjectModel.update($state.params);
-		                    if (_.is.object(args[0])) sendingObjectModel.update(args[0]);
+		                    sendingObjectModel.$update($state.params);
+		                    if (_.is.object(args[0])) sendingObjectModel.$update(args[0]);
 		                    if (_.is.function(args[0])) args.unshift({});
 
-		                    args[0] = sendingObjectModel.toModel();
+		                    args[0] = sendingObjectModel.$$toModel();
 
 		                    var requiredFieldValidation = sendingObjectModel.haveReauiredField();
 
@@ -182,7 +199,8 @@
 		                request.$promise.then(function (result) {
 		                    $rootScope.$$$notify.success();
 		                    var deformedResult = deform_with_getter(actionInstance, result);
-		                    actionInstance.update(deformedResult);
+		                    actionInstance.$update(deformedResult);
+                            //debugger
 		                    _db[contextName][methodName]._config.then && _db[contextName][methodName]._config.then.apply(args, arguments);;
 		                }).catch(function () {
 		                    $rootScope.$$$notify.error();
@@ -205,7 +223,7 @@
 		                                //convert to model
 		                                if (_model[contextName][methodName])
 		                                    if (_model[contextName][_model[contextName][methodName]().options.returnModel])
-		                                        var assignValue = new _model[contextName][_model[contextName][methodName]().options.returnModel]().update(assignValue);
+		                                        var assignValue = new _model[contextName][_model[contextName][methodName]().options.returnModel]().$update(assignValue);
 		                                console.log(that)
 		                                placeToSaveResultOrCallbackOrEmitter && _.safeAssign(placeToSaveResultOrCallbackOrEmitter, assignValue, true);
 		                            }
@@ -267,11 +285,10 @@
 		            }
 		        };
 		        var add_api = function (contextName, actionName, method) {
-		            debugger;
 		            this.actionName = actionName;
 		            var actions = {}
 		            actions[actionName] = { method: method, params: {} };
-		            var api = $resource('/' + contextName + '/' + actionName, {}, actions);
+		            var api = $resource('/' + _.camelCase(contextName) + '/' + actionName, {}, actions);
 		            add_method_to_context(contextName, actionName, api[actionName]);
 		            return this;
 		        };
@@ -280,6 +297,54 @@
 		            _.each(model.options.getter, function_That_Change_Data_With_Model_Getter);
 		            return obj;
 		        }
+
+		        //#region build model according to schema
+
+		        var create_model_accordiong_to_schema = function (schema) {
+		            var property_model = function () {
+		                this.Name = '';
+		                this.Default = '';
+		                this.Type = "string";
+		                this.IsRequired = false;
+		            }
+		            var isObjectType = function (obj) {
+		                var result = false;
+
+		                for (var i in obj) {
+		                    if (_.is.object(obj[i])) {
+		                        result = true;
+		                    }
+		                }
+
+		                return result;
+		            }
+		            var interperate = function (schema) {
+		                var res = {};
+
+		                for (var k in schema) {
+		                    if (_.is.array(schema[k])) {
+		                        var sample = schema[k][0] || new property_model;
+		                        res[k] = [];
+		                        res[k].push(interperate(sample));
+		                        //this[k] = _.is.defined(sample.default) ? sample.default : "";
+		                    } else if (isObjectType(schema[k])) {
+		                        res[k] = {};
+		                        for (var kk in schema[k]) {
+		                            res[k][kk] = interperate(schema[k][kk])
+		                        }
+		                    } else {
+		                        res[k] = schema[k].Default || "";
+		                    }
+		                }
+		                return res;
+		            }
+		            var model = interperate(schema);
+		            return function (schema) {
+
+		                _.extend(this, model);
+		            };
+		        }
+		        //#endregion
 
 		        //#region Costumizer functions that fill the option and then create model and actions according options.
 		        var options = { getter: {}, setter: {}, config: {} };
@@ -294,6 +359,11 @@
 		        };
 		        var model = function (model) {
 		            options.model = model;
+		            return this;
+		        };
+		        var schema = function (schema) {
+		            options.schema = schema;
+		            options.model = create_model_accordiong_to_schema(options.schema);
 		            return this;
 		        };
 		        var getter = function (key, deformer) {
@@ -313,7 +383,6 @@
 		            return this;
 		        };
 		        var done = function () {
-		            debugger;
 		            apiGateway.prototype[contextName] = apiGateway.prototype[contextName] || {};
 		            apiGateway.prototype.db[contextName] = apiGateway.prototype.db[contextName] || {};
 		            apiGateway.prototype.notification[contextName] = apiGateway.prototype.notification[contextName] || {};
@@ -330,6 +399,7 @@
 		            action: action,
 		            method: method,
 		            model: model,
+		            schema: schema,
 		            getter: getter,
 		            setter: setter,
 		            config: config
