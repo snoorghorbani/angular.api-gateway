@@ -27,9 +27,7 @@
 		                //#region instance prototype 
 
 		                var __proto = function (options) {
-		                    this.options = options || {};
-		                    this.options.setter = this.options.setter || {};
-		                    this.options.getter = this.options.getter || {};
+		                    this.options = options;
 		                    this.$$schema = this.options.schema || {};
 		                    this.$$toModel = function () {
 		                        var obj = {};
@@ -54,14 +52,12 @@
 		                        var fn = function (i) { return i };
 
 		                        this.options.getter[k];
-		                        debugger
 
 		                        return fn;
 		                    }
 		                    this.$update = function (obj) {
-		                        var getter;
+		                        var getter = function (i) { return i; };
 		                        for (var k in this) {
-		                            getter = this.getGetter(k);
 		                            if (this.hasOwnProperty(k))
 		                                //if (_.is.defined(obj[k])) {
 		                                if (k in obj) {
@@ -120,6 +116,10 @@
 		                    var contextName = options.context;
 		                    var cFn = options.model;
 		                    var proto = new __proto(options);
+
+		                    _.each(options.methods, function (fn, name) {
+		                        proto[name] = fn;
+		                    });
 
 		                    if (!_.is.array(actionNames)) actionNames = [actionNames];
 		                    //TODO : think about it
@@ -193,7 +193,7 @@
 		                            if (_.is.function(args[0])) args.unshift({});
 
 		                            args[0] = sendingObjectModel.$$toModel();
-
+		                            prepare_model_for_sending_to_server(sendingObjectModel)
 		                            var requiredFieldValidation = sendingObjectModel.haveReauiredField();
 
 		                            var request = (requiredFieldValidation.result)
@@ -217,7 +217,7 @@
 		                            //var deformedResult = _.update(deformedResultAccordingType, deformedResultAccordingPath);
 		                            var deformedResult = deform_with_getter(actionInstance, result);
 		                            actionInstance.$update(deformedResult);
-		                            //debugger
+
 		                            _db[contextName][methodName]._config.then && _db[contextName][methodName]._config.then.apply(args, arguments);;
 		                        }).catch(function () {
 		                            $rootScope.$$$notify.error();
@@ -301,19 +301,29 @@
 		                        return fn.apply(_db[contextName], args);
 		                    }
 		                };
-		                var add_api = function (contextName, actionName, method) {
+		                var add_api = function (contextName, actionName, methodType) {
 		                    this.actionName = actionName;
 		                    var actions = {}
-		                    actions[actionName] = { method: method, params: {} };
+		                    actions[actionName] = { method: methodType, params: {} };
 		                    var api = $resource('/' + _.camelCase(contextName) + '/' + actionName, {}, actions);
 		                    add_method_to_context(contextName, actionName, api[actionName]);
 		                    return this;
 		                };
-		                var deform_with_getter = function (model, obj) {
-		                    var function_that_change_data_with_model_getter = _.leftCurry(_.deformPathValue)(obj);
+		                var prepare_model_for_sending_to_server = function (model) {
+		                    var function_that_prepare_model_for_sending_to_server = _.leftCurry(_.deformPathValue)(model);
+
+		                    _.each(model.options.setter, function_that_prepare_model_for_sending_to_server);
+		                }
+		                var deform_with_getter = function (model, response) {
+		                    var function_that_change_data_with_model_getter = _.leftCurry(_.deformPathValue)(response);
 		                    _.each(model.options.getter, function_that_change_data_with_model_getter);
 
-		                    return obj;
+		                    _.each(model.options.virtuals, function (value, key) {
+		                        if (!(key in model.options.getter)) return;
+		                        model[key] = model.options.getter[key].call(response, model[key]);
+		                        //_.deformPathValue(obj, key, model.options.getter[key]);
+		                    })
+		                    return response;
 		                }
 		                var deform_with_type_getter = function (actionInstance, result) {
 		                    //_.each(module_getter, function (value, key) {
@@ -327,7 +337,6 @@
 		                        if (_.is.object(item)) return;
 		                        var type = (actionInstance.options.schema[key].Type) ? actionInstance.options.schema[key].Type : 'string';
 		                        if (module_getter[type]) {
-		                            debugger
 		                            result[key] = module_getter[type](result[key]);
 		                        }
 		                    })
@@ -336,7 +345,7 @@
 
 		                //#region build model according to schema
 
-		                var create_model_accordiong_to_schema = function (schema) {
+		                var create_model_accordiong_to_schema = function (schema, virtuals) {
 		                    var property_model = function () {
 		                        this.Name = '';
 		                        this.Default = '';
@@ -366,7 +375,7 @@
 		                            } else if (isObjectType(schema[k])) {
 		                                res[k] = {};
 		                                for (var kk in schema[k]) {
-		                                    res[k][kk] = interperate(schema[k][kk])
+		                                    res[k][kk] = schema[k][kk].Default || "";
 		                                }
 		                            } else {
 		                                res[k] = schema[k].Default || "";
@@ -375,22 +384,35 @@
 		                        return res;
 		                    }
 		                    var model = interperate(schema);
-		                    return function (schema) {
-
-		                        _.extend(this, model);
+		                    return function () {
+		                        var properties = _.merge(model, virtuals);
+		                        _.extend(this, properties);
 		                    };
 		                }
+
 		                //#endregion
 
 		                //#region Costumizer functions that fill the option and then create model and actions according options.
-		                var options = { getter: {}, setter: {}, config: {} };
-		                options.context = contextName;
+
+		                var options = {
+		                    getter: {},
+		                    methods: {},
+		                    methodType: {},
+		                    setter: {},
+		                    config: {},
+		                    virtuals: {},
+		                    context: contextName
+		                };
 		                var action = function (actionName) {
 		                    options.actionName = actionName;
 		                    return this;
 		                };
-		                var method = function (method) {
-		                    options.method = method.toUpperCase();
+		                var type = function (methodType) {
+		                    options.methodType = methodType.toUpperCase();
+		                    return this;
+		                };
+		                var method = function (name, method) {
+		                    options.methods["$" + _.underscoreCase(name)] = method;
 		                    return this;
 		                };
 		                var model = function (model) {
@@ -399,7 +421,10 @@
 		                };
 		                var schema = function (schema) {
 		                    options.schema = schema;
-		                    options.model = create_model_accordiong_to_schema(options.schema);
+		                    return this;
+		                };
+		                var virtual = function (name, defaultValue) {
+		                    options.virtuals[name] = defaultValue || null;
 		                    return this;
 		                };
 		                var getter = function (key, deformer) {
@@ -423,19 +448,23 @@
 		                    apiGateway.prototype.db[contextName] = apiGateway.prototype.db[contextName] || {};
 		                    apiGateway.prototype.notification[contextName] = apiGateway.prototype.notification[contextName] || {};
 
+		                    options.model = create_model_accordiong_to_schema(options.schema, options.virtuals);
 		                    add_model_to_context(options);
-		                    add_api(options.context, options.actionName, options.method);
+		                    add_api(options.context, options.actionName, options.methodType);
 		                    add_notification_to_context(options.context, options.actionName, options.notification);
 		                }
+
 		                //#endregion
 
 		                return {
 		                    done: done,
 		                    notification: notification,
 		                    action: action,
+		                    type: type,
 		                    method: method,
 		                    model: model,
 		                    schema: schema,
+		                    virtual: virtual,
 		                    getter: getter,
 		                    setter: setter,
 		                    config: config
@@ -446,4 +475,5 @@
 		            return apiGateway;
 		        }]
 		    }
-		});
+		})
+	;
