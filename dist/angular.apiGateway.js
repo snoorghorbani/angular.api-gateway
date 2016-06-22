@@ -108,6 +108,10 @@
 		                        var temp = _model[contextName][this.options.actionName](true);
 		                        return this.$update(temp);
 		                    };
+		                    this.$reset_virtuals = function () {
+		                        _.each(this.options.virtuals, function (defaultValue, name) { this[name] = defaultValue }, this);
+		                        return this;
+		                    };
 		                }
 		                //#endregion
 
@@ -173,7 +177,6 @@
 
 		                        //_.assignIfNotDefined(db[contextName].Models[methodName], add_model_to_context, methodName, _.fn());
 		                        //if (!_model[contextName][methodName]) _model[contextName][methodName] = add_model_to_context(methodName, _.fn());
-		                        var removeNotify = null;
 		                        if (_model[contextName][methodName]) {
 		                            var sendingObjectModel = new _model[contextName][methodName]();
 		                            if (!angular.isFunction(args[0]) && !angular.isObject(args[0]) && angular._.is.defined(args[0])) {
@@ -204,11 +207,9 @@
 		                        }
 		                        if (request.$promise)
 		                            if (_notification[contextName][methodName])
-		                                removeNotify = $rootScope.$$$notify.info(_notification[contextName][methodName]);
+		                                $rootScope.$$$notify.info(_notification[contextName][methodName]);
 
-		                        request.$promise && request.$promise.finally(function () {
-		                            if (removeNotify) setTimeout(removeNotify, 333);
-		                        });
+		                        //#region call on response
 
 		                        request.$promise.then(function (result) {
 		                            $rootScope.$$$notify.success();
@@ -217,12 +218,23 @@
 		                            //var deformedResult = _.update(deformedResultAccordingType, deformedResultAccordingPath);
 		                            var deformedResult = deform_with_getter(actionInstance, result);
 		                            actionInstance.$update(deformedResult);
-
 		                            _db[contextName][methodName]._config.then && _db[contextName][methodName]._config.then.apply(args, arguments);;
 		                        }).catch(function () {
 		                            $rootScope.$$$notify.error();
 		                            _db[contextName][methodName]._config.catch && _db[contextName][methodName]._config.catch.apply(args, arguments);
 		                        });
+
+		                        //#endregion
+
+		                        //#region call for request finally
+
+		                        request.$promise && request.$promise.finally(function () {
+		                        });
+
+		                        //#endregion
+
+		                        //#region return then/catch for use later in conntroller and call function on response
+
 		                        if (_.is.scalar(request))
 		                            return { result: request };
 		                        else return {
@@ -271,6 +283,8 @@
 		                                return this;
 		                            }
 		                        };
+
+		                        //#endregion
 		                    }
 
 		                    _db[contextName][methodName]._config = {};
@@ -318,6 +332,7 @@
 		                    var function_that_change_data_with_model_getter = _.leftCurry(_.deformPathValue)(response);
 		                    _.each(model.options.getter, function_that_change_data_with_model_getter);
 
+		                    // virtual properties deformer
 		                    _.each(model.options.virtuals, function (value, key) {
 		                        if (!(key in model.options.getter)) return;
 		                        model[key] = model.options.getter[key].call(response, model[key]);
@@ -475,5 +490,4 @@
 		            return apiGateway;
 		        }]
 		    }
-		})
-	;
+		});
