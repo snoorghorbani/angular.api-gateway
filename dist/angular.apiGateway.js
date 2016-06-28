@@ -1,7 +1,14 @@
-﻿angular
+﻿;
+angular
 	.module('apiGateway', [])
 		.provider('apiGateway', function () {
 		    var module_getter = {};
+		    STATUS = {
+		        succeed: "succeed",
+		        failed: "failed",
+		        compelete: "pending",
+		        pending: "pending"
+		    }
 		    return {
 		        getter: function (type, getter) {
 		            module_getter[type] = getter;
@@ -29,6 +36,7 @@
 		                var __proto = function (options) {
 		                    this.options = options;
 		                    this.$$schema = this.options.schema || {};
+		                    this.$$status = "";
 		                    this.$$toModel = function () {
 		                        var obj = {};
 		                        for (var k in this) {
@@ -174,7 +182,8 @@
 		                        var options = options;
 		                        var args = _.argToArray(arguments);
 		                        _.removeEventArg(args);
-
+		                        if (_.is.equalText(actionInstance.$$status, STATUS.pending)) return;
+		                        actionInstance.$$status = STATUS.pending;
 		                        //_.assignIfNotDefined(db[contextName].Models[methodName], add_model_to_context, methodName, _.fn());
 		                        //if (!_model[contextName][methodName]) _model[contextName][methodName] = add_model_to_context(methodName, _.fn());
 		                        if (_model[contextName][methodName]) {
@@ -218,10 +227,13 @@
 		                            //var deformedResult = _.update(deformedResultAccordingType, deformedResultAccordingPath);
 		                            var deformedResult = deform_with_getter(actionInstance, result);
 		                            actionInstance.$update(deformedResult);
+		                            debugger;
+		                            actionInstance.$$status = STATUS.succeed;
 		                            _db[contextName][methodName]._config.then && _db[contextName][methodName]._config.then.apply(args, arguments);;
 		                        }).catch(function () {
 		                            $rootScope.$$$notify.error();
 		                            _db[contextName][methodName]._config.catch && _db[contextName][methodName]._config.catch.apply(args, arguments);
+		                            actionInstance.$$status = STATUS.failed;
 		                        });
 
 		                        //#endregion
@@ -490,4 +502,5 @@
 		            return apiGateway;
 		        }]
 		    }
-		});
+		})
+;
