@@ -3,21 +3,30 @@ angular
 	.module('apiGateway', [])
 		.provider('apiGateway', function () {
 		    var module_getter = {};
+		    var apiInstance;
 		    STATUS = {
 		        succeed: "succeed",
 		        failed: "failed",
 		        compelete: "pending",
 		        pending: "pending"
 		    }
+		    var dataTypeSchema = {};
+		    var dataTypeGetter = {};
+		    var dataTypeSetter = {};
 		    return {
 		        getter: function (type, getter) {
 		            module_getter[type] = getter;
 		        },
-		        init: function () {
-		            //api = new apiGateway();
+		        set_data_type_schema: function (dataType) {
+		            dataTypeSchema = dataType;
 		        },
-		        $get: ['$rootScope', '$state', '_', "$resource", function ($rootScope, $state, _, $resource) {
-
+		        set_data_type_getter: function (getters) {
+		            dataTypeGetter = getters;
+		        },
+		        set_data_type_setter: function (setters) {
+		            dataTypeSetter = setters;
+		        },
+		        $get: ['$rootScope', '$state', '_', "$resource", "$q", function ($rootScope, $state, _, $resource, $q) {
 		            var apiGateway = function apiGateway() { }
 
 		            //#region apiGateway Prototype
@@ -26,6 +35,7 @@ angular
 		            //#endregion
 
 		            //#region apiGateway Constructor Object Methods
+
 		            apiGateway.context = function (contextName) {
 		                var _db = apiGateway.prototype.db;
 		                var _model = apiGateway.prototype;
@@ -44,7 +54,7 @@ angular
 		                            if (this.hasOwnProperty(k))
 		                                if (k[0].toUpperCase() == k[0] && k[0] != '_')
 		                                    if (!angular.isFunction(this[k]))
-		                                        if (options.setter[k]) {
+		                                        if (options.setter[k] && false) {
 		                                            obj[k] = options.setter[k](this[k]);
 		                                        } else {
 		                                            obj[k] = this[k];
@@ -103,11 +113,11 @@ angular
 		                    this.$promise = (function (actionName) {
 		                        return {
 		                            "then": function (thenCallback) {
-		                                _db[contextName][actionName]._config.then = thenCallback;
+		                                _db[contextName][actionName]._config.then.push(thenCallback);
 		                                return this;
 		                            },
 		                            "catch": function (catchCallback) {
-		                                _db[contextName][actionName]._config.catch = catchCallback;
+		                                _db[contextName][actionName]._config.catch.push(catchCallback);
 		                                return this;
 		                            }
 		                        }
@@ -156,14 +166,14 @@ angular
 		                                if (invokeAction) instance.$invoke();
 		                                return instance;
 		                            };
-		                            Fn._config = {};
+		                            Fn._config = { then: [], "catch": [] };
 		                            Fn.$promise = {
 		                                "then": function (thenCallback) {
-		                                    _db[contextName][actionName]._config.then = thenCallback;
+		                                    _db[contextName][actionName]._config.then.push(thenCallback);
 		                                    return this;
 		                                },
 		                                "catch": function (catchCallback) {
-		                                    _db[contextName][actionName]._config.catch = catchCallback;
+		                                    _db[contextName][actionName]._config.catch.push(catchCallback);
 		                                    return this;
 		                                }
 		                            }
@@ -178,45 +188,74 @@ angular
 		                    if (!angular.isFunction(method)) return;
 
 		                    _db[contextName][methodName] = function (actionInstance/*args*/) {
-		                        var that = this;
-		                        var options = options;
-		                        var args = _.argToArray(arguments);
-		                        _.removeEventArg(args);
-		                        if (_.is.equalText(actionInstance.$$status, STATUS.pending)) return;
-		                        actionInstance.$$status = STATUS.pending;
-		                        //_.assignIfNotDefined(db[contextName].Models[methodName], add_model_to_context, methodName, _.fn());
-		                        //if (!_model[contextName][methodName]) _model[contextName][methodName] = add_model_to_context(methodName, _.fn());
-		                        if (_model[contextName][methodName]) {
-		                            var sendingObjectModel = new _model[contextName][methodName]();
-		                            if (!angular.isFunction(args[0]) && !angular.isObject(args[0]) && angular._.is.defined(args[0])) {
-		                                createObj: for (var i in sendingObjectModel) {
-		                                    //TODO: isValue
-		                                    if (!angular.isFunction(args[0]) && angular._.is.defined(args[0])) {
-		                                        sendingObjectModel[i] = args.shift();
-		                                    } else {
-		                                        args.unshift(sendingObjectModel);
-		                                        break createObj;
+		                        var request,
+		                            that = this;
+
+		                        var loadFromLocalStorage = _.localStorage.load(contextName + "_" + methodName);
+
+		                        if (actionInstance.options.cache.expiredTime && loadFromLocalStorage && loadFromLocalStorage.isFresh) {
+		                            request = $q.defer();
+		                            request.$promise = request.promise;
+		                            request.resolve(loadFromLocalStorage.value);
+		                        } else {
+		                            var args = _.argToArray(arguments);
+		                            _.removeEventArg(args);
+		                            if (_.is.equalText(actionInstance.$$status, STATUS.pending)) return;
+		                            actionInstance.$$status = STATUS.pending;
+		                            //_.assignIfNotDefined(db[contextName].Models[methodName], add_model_to_context, methodName, _.fn());
+		                            //if (!_model[contextName][methodName]) _model[contextName][methodName] = add_model_to_context(methodName, _.fn());
+		                            if (_model[contextName][methodName]) {
+		                                var sendingObjectModel = new _model[contextName][methodName]();
+		                                if (!angular.isFunction(args[0]) && !angular.isObject(args[0]) && angular._.is.defined(args[0])) {
+		                                    createObj: for (var i in sendingObjectModel) {
+		                                        //TODO: isValue
+		                                        if (!angular.isFunction(args[0]) && angular._.is.defined(args[0])) {
+		                                            sendingObjectModel[i] = args.shift();
+		                                        } else {
+		                                            args.unshift(sendingObjectModel);
+		                                            break createObj;
+		                                        }
 		                                    }
 		                                }
+		                                //extract url params
+		                                sendingObjectModel.$update($state.params);
+		                                if (_.is.object(args[0])) sendingObjectModel.$update(args[0]);
+		                                if (_.is.function(args[0])) args.unshift({});
+
+		                                prepare_model_for_sending_to_server(sendingObjectModel)
+		                                var requiredFieldValidation = sendingObjectModel.haveReauiredField();
+
+		                                args[0] = sendingObjectModel.$$toModel();
+
+		                                //#region create and send request
+
+
+		                                //TODO
+		                                //var request;
+		                                //debugger
+		                                //if (sendingObjectModel.options.cache.expiredTime) {
+		                                //    request = $q
+		                                //    } else {
+		                                //    request = (requiredFieldValidation.result)
+		                                //        ? method.apply(_db[contextName], args) : false;
+		                                //}
+
+
+		                                request = (requiredFieldValidation.result)
+                                            ? method.apply(_db[contextName], args)
+                                            : new _model[contextName][requiredFieldValidation.model]();
+
+		                                //#endregion
+
+		                            } else {
+		                                var request = method.apply(_db[contextName], args);
 		                            }
-		                            //extract url params
-		                            sendingObjectModel.$update($state.params);
-		                            if (_.is.object(args[0])) sendingObjectModel.$update(args[0]);
-		                            if (_.is.function(args[0])) args.unshift({});
-
-		                            args[0] = sendingObjectModel.$$toModel();
-		                            prepare_model_for_sending_to_server(sendingObjectModel)
-		                            var requiredFieldValidation = sendingObjectModel.haveReauiredField();
-
-		                            var request = (requiredFieldValidation.result)
-                                        ? method.apply(_db[contextName], args)
-                                        : new _model[contextName][requiredFieldValidation.model]();
-		                        } else {
-		                            var request = method.apply(_db[contextName], args);
 		                        }
+
 		                        if (request.$promise)
 		                            if (_notification[contextName][methodName])
 		                                $rootScope.$$$notify.info(_notification[contextName][methodName]);
+
 
 		                        //#region call on response
 
@@ -227,12 +266,23 @@ angular
 		                            //var deformedResult = _.update(deformedResultAccordingType, deformedResultAccordingPath);
 		                            var deformedResult = deform_with_getter(actionInstance, result);
 		                            actionInstance.$update(deformedResult);
-		                            debugger;
 		                            actionInstance.$$status = STATUS.succeed;
-		                            _db[contextName][methodName]._config.then && _db[contextName][methodName]._config.then.apply(args, arguments);;
+		                            if (_db[contextName][methodName]._config.then.length > 0) {
+		                                for (var i = 0; i < _db[contextName][methodName]._config.then.length; i++) {
+		                                    _db[contextName][methodName]._config.then[i].apply(args, arguments);;
+		                                }
+		                            }
+
+		                            if (actionInstance.options.cache.expiredTime) {
+		                                _.localStorage.save(contextName + "_" + methodName, JSON.stringify(result), actionInstance.options.cache.expiredTime);
+		                            }
 		                        }).catch(function () {
 		                            $rootScope.$$$notify.error();
-		                            _db[contextName][methodName]._config.catch && _db[contextName][methodName]._config.catch.apply(args, arguments);
+		                            if (_db[contextName][methodName]._config.catch.length > 0) {
+		                                for (var i = 0; i < _db[contextName][methodName]._config.catch.length; i++) {
+		                                    _db[contextName][methodName]._config.catch[i].apply(args, arguments);
+		                                }
+		                            }
 		                            actionInstance.$$status = STATUS.failed;
 		                        });
 
@@ -299,7 +349,7 @@ angular
 		                        //#endregion
 		                    }
 
-		                    _db[contextName][methodName]._config = {};
+		                    _db[contextName][methodName]._config = { then: [], "catch": [] };
 		                };
 		                var add_notification_to_context = function (context, actions, message) {
 		                    if (!_.is.array(actions)) actions = [actions];
@@ -337,12 +387,37 @@ angular
 		                };
 		                var prepare_model_for_sending_to_server = function (model) {
 		                    var function_that_prepare_model_for_sending_to_server = _.leftCurry(_.deformPathValue)(model);
-
 		                    _.each(model.options.setter, function_that_prepare_model_for_sending_to_server);
+
+		                    var paths = _.filter(_.report(model.$$schema), function (i) { return i.name == "Type" });
+		                    _.each(paths, function (item) {
+		                        var type = _.getValue(model.$$schema, item.path);
+		                        type = (_.is.array(type)) ? type[0] : type;
+		                        if (!(type in dataTypeSetter)) return;
+
+		                        var path = item.path.split('.');
+		                        path.pop();
+		                        path = path.join('.');
+
+		                        _.deformPathValue(model, dataTypeSetter[type], path);
+		                    });
 		                }
 		                var deform_with_getter = function (model, response) {
 		                    var function_that_change_data_with_model_getter = _.leftCurry(_.deformPathValue)(response);
 		                    _.each(model.options.getter, function_that_change_data_with_model_getter);
+
+		                    var paths = _.filter(_.report(model.$$schema), function (i) { return i.name == "Type" });
+		                    _.each(paths, function (item) {
+		                        var type = _.getValue(model.$$schema, item.path);
+		                        type = (_.is.array(type)) ? type[0] : type;
+		                        if (!(type in dataTypeGetter)) return;
+
+		                        var path = item.path.split('.');
+		                        path.pop();
+		                        path = path.join('.');
+
+		                        _.deformPathValue(response, dataTypeGetter[type], path);
+		                    });
 
 		                    // virtual properties deformer
 		                    _.each(model.options.virtuals, function (value, key) {
@@ -379,38 +454,46 @@ angular
 		                        this.Type = "string";
 		                        this.IsRequired = false;
 		                    }
+		                    var isModelItemType = function (obj) {
+		                        var result = false;
+
+		                        return !isObjectType(obj) && _.is.not.array(obj);
+		                    }
 		                    var isObjectType = function (obj) {
 		                        var result = false;
 
-		                        for (var i in obj) {
-		                            if (_.is.object(obj[i])) {
-		                                result = true;
-		                            }
-		                        }
+		                        if (_.is.object(obj))
+		                            for (var i in obj)
+		                                if (_.is.object(obj[i]) || (i != "options" && _.is.array(obj[i])))
+		                                    result = true;
 
 		                        return result;
 		                    }
 		                    var interperate = function (schema) {
 		                        var res = {};
 
-		                        for (var k in schema) {
-		                            if (_.is.array(schema[k])) {
-		                                var sample = schema[k][0] || new property_model;
-		                                res[k] = [];
-		                                res[k].push(interperate(sample));
-		                                //this[k] = _.is.defined(sample.default) ? sample.default : "";
-		                            } else if (isObjectType(schema[k])) {
-		                                res[k] = {};
-		                                for (var kk in schema[k]) {
-		                                    res[k][kk] = schema[k][kk].Default || "";
-		                                }
-		                            } else {
-		                                res[k] = schema[k].Default || "";
-		                            }
+		                        if (isModelItemType(schema)) {
+		                            return res = schema.Default || "";
 		                        }
+		                        if (_.is.array(schema)) {
+		                            var sample = schema[0] || new property_model;
+		                            res = [];
+		                            res.push(interperate(sample));
+		                            return res;
+		                        }
+		                        for (var k in schema) {
+		                            res[k] = interperate(schema[k]);
+		                            //if (isObjectType(schema[k]) || true) {
+		                            //    for (var kk in schema[k]) {
+		                            //        res[k][kk] = interperate(schema[k][kk])
+		                            //    }
+		                            //}
+		                        }
+
 		                        return res;
 		                    }
-		                    var model = interperate(schema);
+
+		                    var model = interperate(schema || {});
 		                    return function () {
 		                        var properties = _.merge(model, virtuals);
 		                        _.extend(this, properties);
@@ -428,6 +511,11 @@ angular
 		                    setter: {},
 		                    config: {},
 		                    virtuals: {},
+		                    sync: {},
+		                    cache: {
+		                        saveLocal: true,
+		                        cahceTime: 5000
+		                    },
 		                    context: contextName
 		                };
 		                var action = function (actionName) {
@@ -447,6 +535,18 @@ angular
 		                    return this;
 		                };
 		                var schema = function (schema) {
+		                    var paths = _.report(schema);
+		                    var existsPath = [];
+		                    _.each(paths, function (item) {
+		                        if (!(item.name in dataTypeSchema)) return;
+		                        existsPath.push(item);
+		                    });
+
+		                    _.array.sort(existsPath, "depts");
+		                    _.each(existsPath, function (item) {
+		                        _.setValue(schema, dataTypeSchema[item.name], item.path);
+		                    });
+
 		                    options.schema = schema;
 		                    return this;
 		                };
@@ -464,6 +564,40 @@ angular
 		                };
 		                var notification = function (notification) {
 		                    options.notification = notification;
+		                    return this;
+		                };
+		                var cache = function (expiredTime, saveLocal) {
+		                    //var timeWord = {
+		                    //    "second": 1000,
+		                    //    "minute": timeWord.second * 60,
+		                    //    "hour": timeWord.minute * 60,
+		                    //    "day": timeWord.hour * 24,
+		                    //    "weak": "",
+		                    //    "month": "",
+		                    //    "year": ""
+		                    //}
+		                    var timeWord = _.dictionary.new();
+		                    timeWord.add("second", 1000);
+		                    timeWord.add("minute", 1000 * 60);
+		                    timeWord.add("hour", 1000 * 60 * 60);
+		                    timeWord.add("day", 1000 * 60 * 60 * 24);
+		                    timeWord.add("weak", 1000 * 60 * 60 * 24 * 7);
+		                    timeWord.add("month", 1000 * 60 * 60 * 24 * 7 * 4);
+		                    timeWord.add("year", 1000 * 60 * 60 * 24 * 7 * 4 * 12);
+
+		                    var amount = { "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10 }
+
+		                    if (_.is.string(expiredTime)) {
+		                        var parts = _.spliteAndTrim(expiredTime.toLowerCase());
+		                        options.cache.expiredTime = amount[parts[0]] * timeWord[parts[1]];
+		                    } else {
+		                        options.cache.expiredTime = expiredTime;
+		                    }
+		                    //options.cache.saveLocal = saveLocal;
+		                    return this;
+		                };
+		                var sync = function (config) {
+		                    _.update(options.sync, config);
 		                    return this;
 		                };
 		                var config = function (key, value) {
@@ -494,11 +628,18 @@ angular
 		                    virtual: virtual,
 		                    getter: getter,
 		                    setter: setter,
+		                    cache: cache,
 		                    config: config
 		                }
 		            };
+
 		            ///#endregion
 
+		            apiGateway.init = function () {
+		                return (apiInstance)
+                            ? apiInstance
+                            : apiInstance = new apiGateway();
+		            }
 		            return apiGateway;
 		        }]
 		    }
