@@ -10,9 +10,9 @@ angular
 		        compelete: "pending",
 		        pending: "pending"
 		    }
-		    var dataTypeSchema = {};
-		    var dataTypeGetter = {};
-		    var dataTypeSetter = {};
+		    var dataTypeSchema = {},
+		        dataTypeGetter = {},
+		        dataTypeSetter = {};
 		    return {
 		        getter: function (type, getter) {
 		            module_getter[type] = getter;
@@ -420,10 +420,14 @@ angular
 		                    });
 
 		                    // virtual properties deformer
+		                    function_that_change_data_with_model_getter = _.leftCurry(_.deformPathValue)(response);
 		                    _.each(model.options.virtuals, function (value, key) {
-		                        if (!(key in model.options.getter)) return;
-		                        model[key] = model.options.getter[key].call(response, model[key]);
-		                        //_.deformPathValue(obj, key, model.options.getter[key]);
+		                        var deformer = model.options.getter[key];
+		                        if (!deformer) return;
+
+		                        _.deformPathValue(response, function (item) {
+		                            return deformer.call(item, _.getValue(model, key) || _.getValue(model.options.virtuals, key));
+		                        }, key, true);
 		                    })
 		                    return response;
 		                }
