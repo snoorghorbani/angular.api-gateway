@@ -12,6 +12,7 @@ angular
 		    }
 		    var dataTypeSchema = {},
 		        dataTypeGetter = {},
+		        dataTypeGetterAccordingValue = {},
 		        dataTypeSetter = {};
 		    return {
 		        getter: function (type, getter) {
@@ -22,6 +23,9 @@ angular
 		        },
 		        set_data_type_getter: function (getters) {
 		            dataTypeGetter = getters;
+		        },
+		        set_data_type_getter_according_value: function (getters) {
+		            dataTypeGetterAccordingValue = getters;
 		        },
 		        set_data_type_setter: function (setters) {
 		            dataTypeSetter = setters;
@@ -113,11 +117,25 @@ angular
 		                    this.$promise = (function (actionName) {
 		                        return {
 		                            "then": function (thenCallback) {
-		                                _db[contextName][actionName]._config.then.push(thenCallback);
+		                                var isNew = true;
+		                                _.each(_db[contextName][actionName]._config.then, function (fn) {
+		                                    if (fn.toString() == thenCallback.toString()) {
+		                                        isNew = false;
+		                                    }
+		                                });
+
+		                                isNew && _db[contextName][actionName]._config.then.push(thenCallback);
 		                                return this;
 		                            },
 		                            "catch": function (catchCallback) {
-		                                _db[contextName][actionName]._config.catch.push(catchCallback);
+		                                var isNew = true;
+		                                _.each(_db[contextName][actionName]._config.catch, function (fn) {
+		                                    if (fn.toString() == catchCallback.toString()) {
+		                                        isNew = false;
+		                                    }
+		                                });
+
+		                                isNew && _db[contextName][actionName]._config.catch.push(catchCallback);
 		                                return this;
 		                            }
 		                        }
@@ -130,8 +148,14 @@ angular
 		                        _.each(this.options.virtuals, function (defaultValue, name) { this[name] = defaultValue }, this);
 		                        return this;
 		                    };
+		                    this.$$$$deform_with_getter = function (model,response) {
+		                        _.extend(this, model);
+		                        deform_with_getter(this, this);
+		                    }
 		                }
 		                //#endregion
+
+		                
 
 		                var add_model_to_context = function (options) {
 		                    var actionNames = options.actionName;
@@ -169,16 +193,36 @@ angular
 		                            Fn._config = { then: [], "catch": [] };
 		                            Fn.$promise = {
 		                                "then": function (thenCallback) {
-		                                    _db[contextName][actionName]._config.then.push(thenCallback);
+		                                    var itemIndex = -1;
+		                                    _.each(_db[contextName][actionName]._config.then, function (fn, idx) {
+		                                        if (fn.toString() == thenCallback.toString()) {
+		                                            itemIndex = idx;
+		                                        }
+		                                    });
+		                                    if (itemIndex == -1) {
+		                                        _db[contextName][actionName]._config.then.push(thenCallback);
+		                                    } else {
+		                                        _db[contextName][actionName]._config.then[parseInt(itemIndex)] = thenCallback;
+		                                    }
 		                                    return this;
 		                                },
 		                                "catch": function (catchCallback) {
-		                                    _db[contextName][actionName]._config.catch.push(catchCallback);
+		                                    var itemIndex = -1;
+		                                    _.each(_db[contextName][actionName]._config.catch, function (fn, idx) {
+		                                        if (fn.toString() == thenCallback.toString()) {
+		                                            itemIndex = idx;
+		                                        }
+		                                    });
+		                                    if (itemIndex == -1) {
+		                                        _db[contextName][actionName]._config.catch.push(thenCallback);
+		                                    } else {
+		                                        _db[contextName][actionName]._config.catch[parseInt(itemIndex)] = thenCallback;
+		                                    }
 		                                    return this;
 		                                }
 		                            }
 		                            Fn.prototype.actionName = actionName;
-
+		                            Fn();
 		                            return Fn;
 		                        })(cFn, contextName, actionName);
 		                    return this;
@@ -260,10 +304,17 @@ angular
 		                        //#region call on response
 
 		                        request.$promise.then(function (result) {
+		                            if (actionInstance.options.lazyModel) {
+		                                actionInstance.options.schema = result.schema
+		                                actionInstance.options.model = create_model_accordiong_to_schema(actionInstance.options.schema, actionInstance.options.virtuals, result.model);
+		                                add_model_to_context(actionInstance.options);
+		                            }
+
 		                            $rootScope.$$$notify.success();
 		                            //var deformedResultAccordingType = deform_with_type_getter(actionInstance, result)
 		                            //var deformedResultAccordingPath = deform_with_getter(actionInstance, result);
 		                            //var deformedResult = _.update(deformedResultAccordingType, deformedResultAccordingPath);
+
 		                            var deformedResult = deform_with_getter(actionInstance, result);
 		                            actionInstance.$update(deformedResult);
 		                            actionInstance.$$status = STATUS.succeed;
@@ -351,6 +402,7 @@ angular
 
 		                    _db[contextName][methodName]._config = { then: [], "catch": [] };
 		                };
+
 		                var add_notification_to_context = function (context, actions, message) {
 		                    if (!_.is.array(actions)) actions = [actions];
 
@@ -377,11 +429,16 @@ angular
 		                        return fn.apply(_db[contextName], args);
 		                    }
 		                };
-		                var add_api = function (contextName, actionName, methodType) {
+		                var add_api = function (contextName, actionName, methodType, route) {
 		                    this.actionName = actionName;
 		                    var actions = {}
 		                    actions[actionName] = { method: methodType, params: {} };
-		                    var api = $resource('/' + _.camelCase(contextName) + '/' + actionName, {}, actions);
+		                    var api;
+		                    if (route) {
+		                        api = $resource('/' + route, {}, actions);
+		                    } else {
+		                        api = $resource('/' + _.camelCase(contextName) + '/' + actionName, {}, actions);
+		                    }
 		                    add_method_to_context(contextName, actionName, api[actionName]);
 		                    return this;
 		                };
@@ -402,11 +459,20 @@ angular
 		                        _.deformPathValue(model, dataTypeSetter[type], path);
 		                    });
 		                }
+
+
 		                var deform_with_getter = function (model, response) {
+		                    //if (model.options.lazyModel) return model;
+		                    //#region deform by path
+
 		                    var function_that_change_data_with_model_getter = _.leftCurry(_.deformPathValue)(response);
 		                    _.each(model.options.getter, function_that_change_data_with_model_getter);
 
-		                    var paths = _.filter(_.report(model.$$schema), function (i) { return i.name == "Type" });
+		                    //#endregion
+
+		                    //#region deform by type getters
+
+		                    var paths = _.filter(_.report(model.$$schema), function (i) { return (i.name.toLowerCase() == "type") });
 		                    _.each(paths, function (item) {
 		                        var type = _.getValue(model.$$schema, item.path);
 		                        type = (_.is.array(type)) ? type[0] : type;
@@ -419,7 +485,28 @@ angular
 		                        _.deformPathValue(response, dataTypeGetter[type], path);
 		                    });
 
-		                    // virtual properties deformer
+		                    //#endregion
+
+		                    //#region deform by value of schema items
+
+		                    //var paths = _.filter(_.report(model.$$schema), function (i) { return i.name.toLowerCase() == "value" });
+		                    //_.each(paths, function (item) {
+		                    //    var value = _.getValue(model.$$schema, item.path);
+		                    //    value = (_.is.array(value)) ? value[0] : value;
+
+		                    //    if (!(value in dataTypeGetter)) return;
+
+		                    //    var path = item.path.split('.');
+		                    //    path.pop();
+		                    //    path = path.join('.');
+
+		                    //    _.deformPathValue(response, dataTypeGetter[value], path);
+		                    //});
+
+		                    //#endregion
+
+		                    //#region virtual properties deformer
+
 		                    function_that_change_data_with_model_getter = _.leftCurry(_.deformPathValue)(response);
 		                    _.each(model.options.virtuals, function (value, key) {
 		                        var deformer = model.options.getter[key];
@@ -429,9 +516,15 @@ angular
 		                            return deformer.call(item, _.getValue(model, key) || _.getValue(model.options.virtuals, key));
 		                        }, key, true);
 		                    })
+
+		                    //#endregion
+
 		                    return response;
 		                }
+
 		                var deform_with_type_getter = function (actionInstance, result) {
+		                    if (model.options.lazyModel) return actionInstance;
+
 		                    //_.each(module_getter, function (value, key) {
 		                    //    var props = _.filter(_.report(this.options.schema), function (item) { return item.isLastNode });
 		                    //    _.each(props, function (item) {
@@ -451,12 +544,14 @@ angular
 
 		                //#region build model according to schema
 
-		                var create_model_accordiong_to_schema = function (schema, virtuals) {
+		                var create_model_accordiong_to_schema = function (schema, virtuals, defaultValues) {
+		                    defaultValues = defaultValues || {};
 		                    var property_model = function () {
-		                        this.Name = '';
-		                        this.Default = '';
-		                        this.Type = "string";
-		                        this.IsRequired = false;
+		                        this.name = '';
+		                        this.default = '';
+		                        this.value = '';
+		                        this.type = "string";
+		                        this.required = false;
 		                    }
 		                    var isModelItemType = function (obj) {
 		                        var result = false;
@@ -473,20 +568,20 @@ angular
 
 		                        return result;
 		                    }
-		                    var interperate = function (schema) {
+		                    var interperate = function (schema, name) {
 		                        var res = {};
 
 		                        if (isModelItemType(schema)) {
-		                            return res = schema.Default || "";
+		                            return res = defaultValues[name] || schema.value || schema.default || schema.Value || schema.Default || "";
 		                        }
 		                        if (_.is.array(schema)) {
 		                            var sample = schema[0] || new property_model;
 		                            res = [];
-		                            res.push(interperate(sample));
+		                            res.push(interperate(sample, name));
 		                            return res;
 		                        }
 		                        for (var k in schema) {
-		                            res[k] = interperate(schema[k]);
+		                            res[k] = interperate(schema[k], k);
 		                            //if (isObjectType(schema[k]) || true) {
 		                            //    for (var kk in schema[k]) {
 		                            //        res[k][kk] = interperate(schema[k][kk])
@@ -497,7 +592,7 @@ angular
 		                        return res;
 		                    }
 
-		                    var model = interperate(schema || {});
+		                    var model = interperate(schema || {}, 'model');
 		                    return function () {
 		                        var properties = _.merge(model, virtuals);
 		                        _.extend(this, properties);
@@ -512,6 +607,7 @@ angular
 		                    getter: {},
 		                    methods: {},
 		                    methodType: {},
+		                    route: null,
 		                    setter: {},
 		                    config: {},
 		                    virtuals: {},
@@ -520,7 +616,9 @@ angular
 		                        saveLocal: true,
 		                        cahceTime: 5000
 		                    },
-		                    context: contextName
+		                    context: contextName,
+		                    lazyModel: false,
+		                    schema: false
 		                };
 		                var action = function (actionName) {
 		                    options.actionName = actionName;
@@ -532,6 +630,10 @@ angular
 		                };
 		                var method = function (name, method) {
 		                    options.methods["$" + _.underscoreCase(name)] = method;
+		                    return this;
+		                };
+		                var route = function (route) {
+		                    options.route = route;
 		                    return this;
 		                };
 		                var model = function (model) {
@@ -608,14 +710,24 @@ angular
 		                    options.config[key] = value;
 		                    return this;
 		                };
+		                var lazy_model = function () {
+		                    options.lazyModel = true;
+
+		                    return this;
+		                }
 		                var done = function () {
 		                    apiGateway.prototype[contextName] = apiGateway.prototype[contextName] || {};
 		                    apiGateway.prototype.db[contextName] = apiGateway.prototype.db[contextName] || {};
 		                    apiGateway.prototype.notification[contextName] = apiGateway.prototype.notification[contextName] || {};
 
+		                    //if lazy load
+		                    if (!options.schema)
+		                        options.lazyModel = true;
+
 		                    options.model = create_model_accordiong_to_schema(options.schema, options.virtuals);
 		                    add_model_to_context(options);
-		                    add_api(options.context, options.actionName, options.methodType);
+
+		                    add_api(options.context, options.actionName, options.methodType, options.route);
 		                    add_notification_to_context(options.context, options.actionName, options.notification);
 		                }
 
@@ -627,13 +739,15 @@ angular
 		                    action: action,
 		                    type: type,
 		                    method: method,
+		                    route: route,
 		                    model: model,
 		                    schema: schema,
 		                    virtual: virtual,
 		                    getter: getter,
 		                    setter: setter,
 		                    cache: cache,
-		                    config: config
+		                    config: config,
+		                    lazy_model: lazy_model
 		                }
 		            };
 
