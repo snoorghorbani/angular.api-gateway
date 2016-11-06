@@ -73,12 +73,13 @@ angular
                             for (var k in this) {
                                 //TODO : check sub Model
                                 if (this.hasOwnProperty(k))
-                                    if (!angular.isFunction(this[k]))
-                                        if (options.setter[k] && false) {
-                                            obj[k] = options.setter[k](this[k]);
-                                        } else {
-                                            obj[k] = this[k];
-                                        }
+                                    if (k in options.schema)
+                                        if (!angular.isFunction(this[k]))
+                                            if (options.setter[k] && false) {
+                                                obj[k] = options.setter[k](this[k]);
+                                            } else {
+                                                obj[k] = this[k];
+                                            }
                             }
                             return obj;
                         };
@@ -132,24 +133,28 @@ angular
                         };
                         this.$promise = (function (actionName) {
                             return {
-                                "then": function (thenCallback) {
+                                "then": function (thenCallback, singleInstance) {
                                     var isNew = true;
-                                    _.each(_db[contextName][actionName]._config.then, function (fn) {
-                                        if (fn.toString() == thenCallback.toString()) {
-                                            isNew = false;
-                                        }
-                                    });
+                                    if (!singleInstance) {
+                                        _.each(_db[contextName][actionName]._config.then, function (fn) {
+                                            if (fn.toString() == thenCallback.toString()) {
+                                                isNew = false;
+                                            }
+                                        });
+                                    }
 
                                     isNew && _db[contextName][actionName]._config.then.push(thenCallback);
                                     return this;
                                 },
-                                "catch": function (catchCallback) {
+                                "catch": function (catchCallback, singleInstance) {
                                     var isNew = true;
-                                    _.each(_db[contextName][actionName]._config.catch, function (fn) {
-                                        if (fn.toString() == catchCallback.toString()) {
-                                            isNew = false;
-                                        }
-                                    });
+                                    if (!singleInstance) {
+                                        _.each(_db[contextName][actionName]._config.catch, function (fn) {
+                                            if (fn.toString() == catchCallback.toString()) {
+                                                isNew = false;
+                                            }
+                                        });
+                                    }
 
                                     isNew && _db[contextName][actionName]._config.catch.push(catchCallback);
                                     return this;
@@ -208,13 +213,15 @@ angular
                                 };
                                 Fn._config = { then: [], "catch": [] };
                                 Fn.$promise = {
-                                    "then": function (thenCallback) {
+                                    "then": function (thenCallback, singleInstance) {
                                         var itemIndex = -1;
-                                        _.each(_db[contextName][actionName]._config.then, function (fn, idx) {
-                                            if (fn.toString() == thenCallback.toString()) {
-                                                itemIndex = idx;
-                                            }
-                                        });
+                                        if (!singleInstance) {
+                                            _.each(_db[contextName][actionName]._config.then, function (fn, idx) {
+                                                if (fn.toString() == thenCallback.toString()) {
+                                                    itemIndex = idx;
+                                                }
+                                            });
+                                        }
                                         if (itemIndex == -1) {
                                             _db[contextName][actionName]._config.then.push(thenCallback);
                                         } else {
@@ -222,13 +229,15 @@ angular
                                         }
                                         return this;
                                     },
-                                    "catch": function (catchCallback) {
+                                    "catch": function (catchCallback, singleInstance) {
                                         var itemIndex = -1;
-                                        _.each(_db[contextName][actionName]._config.catch, function (fn, idx) {
-                                            if (fn.toString() == catchCallback.toString()) {
-                                                itemIndex = idx;
-                                            }
-                                        });
+                                        if (!singleInstance) {
+                                            _.each(_db[contextName][actionName]._config.catch, function (fn, idx) {
+                                                if (fn.toString() == catchCallback.toString()) {
+                                                    itemIndex = idx;
+                                                }
+                                            });
+                                        }
                                         if (itemIndex == -1) {
                                             _db[contextName][actionName]._config.catch.push(catchCallback);
                                         } else {
@@ -446,7 +455,7 @@ angular
                             return fn.apply(_db[contextName], args);
                         }
                     };
-                    var add_api = function (contextName, actionName, methodType, route, routeExtending, query_strings) {
+                    var add_api = function (contextName, actionName, methodType, route, routeExtending, query_strings, requester) {
                         this.actionName = actionName;
                         var actions = {}
                         actions[actionName] = { method: methodType, params: {} };
@@ -457,19 +466,23 @@ angular
                             routeParams[item] = "@" + item;
                         });
 
-                        if (route && !routeExtending) {                                 //fixed routing
-                            api = $resource('/' + route, routeParams, actions);
-                        } else if (route && routeExtending) {                           //routing with controller/action/:params
-                            var splitedRoute = _.array.compact(route.split('/:'));
-                            _.each(splitedRoute, function (item) {
-                                routeParams[item] = "@" + item;
-                            });
+                        if (!requester) {
+                            if (route && !routeExtending) {                                 //fixed routing
+                                api = $resource('/' + route, routeParams, actions);
+                            } else if (route && routeExtending) {                           //routing with controller/action/:params
+                                var splitedRoute = _.array.compact(route.split('/:'));
+                                _.each(splitedRoute, function (item) {
+                                    routeParams[item] = "@" + item;
+                                });
 
-                            api = $resource('/' + _.camelCase(contextName) + '/' + actionName + route, routeParams, actions);
-                        } else {                                                        // routing : controller/action
-                            api = $resource('/' + _.camelCase(contextName) + '/' + actionName, routeParams, actions);
+                                api = $resource('/' + _.camelCase(contextName) + '/' + actionName + route, routeParams, actions);
+                            } else {                                                        // routing : controller/action
+                                api = $resource('/' + _.camelCase(contextName) + '/' + actionName, routeParams, actions);
+                            }
+                            add_method_to_context(contextName, actionName, api[actionName]);
+                        } else {
+                            add_method_to_context(contextName, actionName, requester);
                         }
-                        add_method_to_context(contextName, actionName, api[actionName]);
                         return this;
                     };
                     var prepare_model_for_sending_to_server = function (model) {
@@ -638,7 +651,7 @@ angular
                         methods: {},
                         methodType: {},
                         route: null,
-                        query_strings:[],
+                        query_strings: [],
                         routeExtending: false,
                         setter: {},
                         config: {},
@@ -651,6 +664,7 @@ angular
                         context: contextName,
                         lazyModel: false,
                         schema: false,
+                        requester: null,
                         pause_before_send: false
                     };
                     var action = function (actionName) {
@@ -756,6 +770,10 @@ angular
                     var pause_before_send = function pause_before_send() {
                         options.pause_before_send = true;
                         return this;
+                    };
+                    var requester = function (fn) {
+                        options.requester = fn;
+                        return this;
                     }
                     var done = function () {
                         apiGateway.prototype[contextName] = apiGateway.prototype[contextName] || {};
@@ -769,7 +787,7 @@ angular
                         options.model = create_model_accordiong_to_schema(options.schema, options.virtuals);
                         add_model_to_context(options);
 
-                        add_api(options.context, options.actionName, options.methodType, options.route, options.routeExtending , options.query_strings);
+                        add_api(options.context, options.actionName, options.methodType, options.route, options.routeExtending, options.query_strings, options.requester);
                         add_notification_to_context(options.context, options.actionName, options.notification);
                     }
 
@@ -788,6 +806,7 @@ angular
                         virtual: virtual,
                         getter: getter,
                         setter: setter,
+                        requester: requester,
                         cache: cache,
                         config: config,
                         lazy_model: lazy_model,
